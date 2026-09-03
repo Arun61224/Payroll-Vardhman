@@ -382,23 +382,35 @@ export function calculateDailyPayroll(
           actualWorkingHours = 8;
           underworkMissedHours = 0;
           underworkDeduction = 0;
-        } else if (netWorkedHours >= 3.0 && netWorkedHours <= 5.5) {
-          // Half day
+        } else if (netWorkedHours < 3.0) {
+          // Short day / missed full day (less than 3 hours)
+          actualWorkingHours = 0;
+          underworkMissedHours = 8;
+          underworkDeduction = oneDayPay;
+        } else if (netWorkedHours >= 3.0 && netWorkedHours < 4.5) {
+          // Half day (around 4 hours, e.g. leaving at 12:00 PM)
           actualWorkingHours = 4;
           underworkMissedHours = 4;
           lateDeduction = 0;
           underworkDeduction = oneDayPay / 2;
-        } else if (netWorkedHours < 3.0) {
-          // Short day / missed full day
-          actualWorkingHours = 0;
-          underworkMissedHours = 8;
-          underworkDeduction = oneDayPay;
+        } else if (netWorkedHours >= 4.5 && netWorkedHours < 5.5) {
+          // 5 hours worked (e.g. leaving around 1:00 PM / 13:00, 12pm half day + 1hr extra before 1-2pm lunch)
+          actualWorkingHours = 5;
+          underworkMissedHours = 3;
+          lateDeduction = 0;
+          underworkDeduction = 3 * hourlyWage;
+        } else if (netWorkedHours >= 5.5 && netWorkedHours < 6.5) {
+          // 6 hours worked
+          actualWorkingHours = 6;
+          underworkMissedHours = 2;
+          lateDeduction = 0;
+          underworkDeduction = 2 * hourlyWage;
         } else {
-          // Worked between 5.5 and 7.25 hours (short hours)
-          const missedHours = Math.min(8, Math.max(0, 8 - Math.round(netWorkedHours)));
-          actualWorkingHours = Math.max(0, 8 - missedHours);
-          underworkMissedHours = missedHours;
-          underworkDeduction = missedHours * hourlyWage;
+          // Worked between 6.5 and 7.25 hours (7 hours worked)
+          actualWorkingHours = 7;
+          underworkMissedHours = 1;
+          lateDeduction = 0;
+          underworkDeduction = 1 * hourlyWage;
         }
       } else {
         actualWorkingHours = netWorkedHours;
@@ -443,10 +455,10 @@ export function calculateDailyPayroll(
       }
     }
 
-    // Check if employee worked around 4 hours net (half-day work: between 3.5 and 4.5 hours net)
+    // Check if employee worked around 4 hours net (half-day work: around 4 hours net)
     const currentLunchOverlap = calculateLunchOverlap(punchIn, punchOut);
     const netWorkedHours = hoursWorked - currentLunchOverlap;
-    const isHalfDay = !sunday && (netWorkedHours >= 3.5 && netWorkedHours <= 4.5);
+    const isHalfDay = !sunday && (actualWorkingHours === 4 || (type === 'Labour' && netWorkedHours >= 3.5 && netWorkedHours < 4.5));
 
     if (isHalfDay) {
       lateDeduction = 0;
