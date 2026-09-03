@@ -308,13 +308,13 @@ export function calculateDailyPayroll(
           overtimePay = Number((totalExtraHours * hourlyWage).toFixed(2));
         }
 
-        // Plus, ₹100 flat bonus for staying till 7:00 PM (19:00 / outMins >= 1140 or extraMinsAfter >= 90 mins) on regular days (08:00 - 17:00 shift).
-        if (extraMinsAfter >= 90 || outMins >= 1140) {
+        // Plus, ₹100 flat bonus for staying till 8:00 PM (20:00 / outMins >= 1175, i.e. 19:35 or later) on regular days.
+        if (outMins >= 1175) {
           flatBonus = 100;
         }
       } else {
         // Sunday: Labour shift end is 15:00 (3:00 PM). Working past 15:00 is paid hourly.
-        // Plus if stayed till 5:00 PM (17:00 / outMins >= 1020 or extraMinsPast15 >= 90 mins), add ₹100 flat bonus.
+        // Plus if stayed till 8:00 PM (20:00 / outMins >= 1175, i.e. 19:35 or later), add ₹100 flat bonus.
         const extraMinsPast15 = Math.max(0, outMins - (startMins + 420));
         let extraHoursSunday = Math.floor(extraMinsPast15 / 60);
         if (extraMinsPast15 % 60 >= 35) {
@@ -323,7 +323,7 @@ export function calculateDailyPayroll(
         if (extraHoursSunday > 0) {
           overtimePay = Number((extraHoursSunday * hourlyWage).toFixed(2));
         }
-        if (outMins >= 1020 || extraMinsPast15 >= 90) {
+        if (outMins >= 1175) {
           flatBonus = 100;
         }
       }
@@ -482,7 +482,13 @@ export function calculateDailyPayroll(
           }
           
           if (overtimeBonus > 0) {
-            explanation += ` Plus Overtime Bonus (+₹${overtimeBonus.toFixed(0)}).`;
+            if (overtimePay > 0 && flatBonus > 0) {
+              explanation += ` Plus Overtime Pay (+₹${overtimePay.toFixed(0)}) & ₹100 OT Bonus (till 8:00 PM).`;
+            } else if (overtimePay > 0) {
+              explanation += ` Plus Overtime Pay (+₹${overtimePay.toFixed(0)}).`;
+            } else if (flatBonus > 0) {
+              explanation += ` Plus ₹100 OT Bonus (till 8:00 PM).`;
+            }
           }
         } else {
           dailyWage = 0;
@@ -601,7 +607,7 @@ export function calculateDailyPayroll(
           const totalOTPay = (extraHoursBefore + extraHoursAfter) * hourlyWage;
           const has100Bonus = flatBonus > 0;
           
-          explanation += ` Overtime: ${otParts.length > 0 ? otParts.join(', ') : 'Past 5:00 PM'} (+₹${totalOTPay.toFixed(0)}${has100Bonus ? ' + ₹100 OT Bonus' : ''}).`;
+          explanation += ` Overtime: ${otParts.length > 0 ? otParts.join(', ') : 'Past 5:00 PM'} (+₹${totalOTPay.toFixed(0)}${has100Bonus ? ' + ₹100 OT Bonus (till 8:00 PM)' : ''}).`;
         } else {
           const isAanchal = isAanchalGoel(employee.name);
           explanation += ` Overtime Bonus (+₹${overtimeBonus.toFixed(0)}${isAanchal ? ' for 7 PM stay' : ''}).`;

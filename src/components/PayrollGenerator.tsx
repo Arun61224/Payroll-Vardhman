@@ -616,7 +616,7 @@ export const PayrollGenerator: React.FC = () => {
         </div>
         <div className="space-y-0.5 border-t md:border-t-0 md:border-l border-indigo-100/50 md:pl-4 pt-2 md:pt-0">
           <span className="text-indigo-600 font-bold uppercase tracking-wide text-[10px] block">Overtime (OT)</span>
-          Labour gets ₹100 flat bonus for 2+ hrs extra work (after 7:00 PM on weekdays, after 5:00 PM on Sundays). Staff staying till 8:00 PM (7:00 PM for Aanchal) get ₹100 flat bonus.
+          Labour & Staff get ₹100 flat bonus for staying till 8:00 PM (7:00 PM for Aanchal) on both weekdays & Sundays. Labour OT is paid hourly before 8 AM & after shift end (5 PM weekdays, 3 PM Sundays).
         </div>
       </div>
 
