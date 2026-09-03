@@ -376,44 +376,40 @@ export function calculateDailyPayroll(
         earlyDepartureHours = remainderEarly <= 25 ? fullHoursEarly : (fullHoursEarly + 1);
       }
 
-      if (!sunday) {
-        if (netWorkedHours >= 7.25 || (actualInMins <= (startMins + 35) && actualOutMins >= (endMins - 35))) {
-          // Full regular day on time
-          actualWorkingHours = 8;
-          underworkMissedHours = 0;
-          underworkDeduction = 0;
-        } else if (netWorkedHours < 3.0) {
-          // Short day / missed full day (less than 3 hours)
-          actualWorkingHours = 0;
-          underworkMissedHours = 8;
-          underworkDeduction = oneDayPay;
-        } else if (netWorkedHours >= 3.0 && netWorkedHours < 4.5) {
-          // Half day (around 4 hours, e.g. leaving at 12:00 PM)
-          actualWorkingHours = 4;
-          underworkMissedHours = 4;
-          lateDeduction = 0;
-          underworkDeduction = oneDayPay / 2;
-        } else if (netWorkedHours >= 4.5 && netWorkedHours < 5.5) {
-          // 5 hours worked (e.g. leaving around 1:00 PM / 13:00, 12pm half day + 1hr extra before 1-2pm lunch)
-          actualWorkingHours = 5;
-          underworkMissedHours = 3;
-          lateDeduction = 0;
-          underworkDeduction = 3 * hourlyWage;
-        } else if (netWorkedHours >= 5.5 && netWorkedHours < 6.5) {
-          // 6 hours worked
-          actualWorkingHours = 6;
-          underworkMissedHours = 2;
-          lateDeduction = 0;
-          underworkDeduction = 2 * hourlyWage;
-        } else {
-          // Worked between 6.5 and 7.25 hours (7 hours worked)
-          actualWorkingHours = 7;
-          underworkMissedHours = 1;
-          lateDeduction = 0;
-          underworkDeduction = 1 * hourlyWage;
-        }
+      if (netWorkedHours >= 7.25 || (actualInMins <= (startMins + 35) && actualOutMins >= (endMins - 35))) {
+        // Full regular day on time (with 35m morning grace & departure grace, on normal days & Sundays)
+        actualWorkingHours = 8;
+        underworkMissedHours = 0;
+        underworkDeduction = 0;
+      } else if (netWorkedHours < 3.0) {
+        // Short day / missed full day (less than 3 hours)
+        actualWorkingHours = 0;
+        underworkMissedHours = sunday ? 0 : 8;
+        underworkDeduction = sunday ? 0 : oneDayPay;
+      } else if (netWorkedHours >= 3.0 && netWorkedHours < 4.5) {
+        // Half day (around 4 hours, e.g. leaving at 12:00 PM)
+        actualWorkingHours = 4;
+        underworkMissedHours = sunday ? 0 : 4;
+        lateDeduction = 0;
+        underworkDeduction = sunday ? 0 : oneDayPay / 2;
+      } else if (netWorkedHours >= 4.5 && netWorkedHours < 5.5) {
+        // 5 hours worked (e.g. leaving around 1:00 PM / 13:00, 12pm half day + 1hr extra before 1-2pm lunch)
+        actualWorkingHours = 5;
+        underworkMissedHours = sunday ? 0 : 3;
+        lateDeduction = 0;
+        underworkDeduction = sunday ? 0 : 3 * hourlyWage;
+      } else if (netWorkedHours >= 5.5 && netWorkedHours < 6.5) {
+        // 6 hours worked
+        actualWorkingHours = 6;
+        underworkMissedHours = sunday ? 0 : 2;
+        lateDeduction = 0;
+        underworkDeduction = sunday ? 0 : 2 * hourlyWage;
       } else {
-        actualWorkingHours = netWorkedHours;
+        // Worked between 6.5 and 7.25 hours (7 hours worked)
+        actualWorkingHours = 7;
+        underworkMissedHours = sunday ? 0 : 1;
+        lateDeduction = 0;
+        underworkDeduction = sunday ? 0 : 1 * hourlyWage;
       }
       
       underworkWorkedHours = actualWorkingHours;
@@ -473,14 +469,14 @@ export function calculateDailyPayroll(
           const workedFullShift = outMins >= 890 || hoursWorked >= 6; // 14:50 / 15:00
           if (workedFullShift) {
             dailyWage = oneDayPay;
+            netPay = Math.round(oneDayPay) * 2 + overtimeBonus;
           } else {
             dailyWage = Math.min(oneDayPay, (hoursWorked / 6) * oneDayPay);
+            netPay = oneDayPay + dailyWage + overtimeBonus;
           }
           
-          netPay = oneDayPay + dailyWage + overtimeBonus;
-          
           if (workedFullShift) {
-            explanation = `Sunday Work: Weekly Off (₹${oneDayPay.toFixed(0)}) + Extra Work Pay (Full day ₹${dailyWage.toFixed(0)}) = ₹${netPay.toFixed(0)}.`;
+            explanation = `Sunday Work: Weekly Off (₹${Math.round(oneDayPay)}) + Extra Work Pay (Full day ₹${Math.round(dailyWage)}) = ₹${Math.round(netPay)}.`;
           } else {
             explanation = `Sunday Work: Weekly Off (₹${oneDayPay.toFixed(0)}) + Extra Work Pay (${hoursWorked.toFixed(1)}h @ ₹${(oneDayPay / 6).toFixed(0)}/h = ₹${dailyWage.toFixed(0)}) = ₹${netPay.toFixed(0)}.`;
           }
@@ -500,14 +496,15 @@ export function calculateDailyPayroll(
         const creditedHours = actualWorkingHours; // calculated above via Staff credited hours logic
         if (creditedHours >= 8) {
           dailyWage = oneDayPay;
+          netPay = Math.round(oneDayPay) * 2 + overtimeBonus;
         } else {
           dailyWage = Math.min(oneDayPay, creditedHours * hourlyWage);
+          netPay = oneDayPay + dailyWage + overtimeBonus;
         }
         lateDeduction = 0;
-        netPay = oneDayPay + dailyWage + overtimeBonus;
         
         if (creditedHours >= 8) {
-          explanation = `Sunday Work: Weekly Off (₹${oneDayPay.toFixed(0)}) + Extra Work Pay (Full day ₹${dailyWage.toFixed(0)}) = ₹${netPay.toFixed(0)}.`;
+          explanation = `Sunday Work: Weekly Off (₹${Math.round(oneDayPay)}) + Extra Work Pay (Full day ₹${Math.round(dailyWage)}) = ₹${Math.round(netPay)}.`;
         } else if (creditedHours > 0) {
           explanation = `Sunday Work: Weekly Off (₹${oneDayPay.toFixed(0)}) + Extra Work Pay (${creditedHours}h @ ₹${hourlyWage.toFixed(0)}/h = ₹${dailyWage.toFixed(0)}) = ₹${netPay.toFixed(0)}.`;
         } else {
