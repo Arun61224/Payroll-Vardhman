@@ -1,12 +1,23 @@
 import React, { useState } from 'react';
 import { usePayroll } from '../context/PayrollContext';
 import { Employee, EmployeeType } from '../types';
-import { Plus, Edit2, Trash2, Users, Briefcase, IndianRupee, Clock, X, UserPlus, Check, Sparkles, Save, FileSpreadsheet, Upload, RotateCcw, Download } from 'lucide-react';
+import { Plus, Edit2, Trash2, Users, Briefcase, IndianRupee, Clock, X, UserPlus, Check, Sparkles, Save, FileSpreadsheet, Upload, RotateCcw, Download, Building2, Hammer, AlertTriangle, Info } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { normalizeTime } from '../utils/payroll';
 
 export const EmployeeDashboard: React.FC = () => {
-  const { employees, addEmployee, updateEmployee, bulkUpdateEmployees, deleteEmployee, deleteEmployees } = usePayroll();
+  const { 
+    employees, 
+    activeCategory, 
+    setActiveCategory, 
+    clearEmployeesByType, 
+    replaceEmployeesByType, 
+    addEmployee, 
+    updateEmployee, 
+    bulkUpdateEmployees, 
+    deleteEmployee, 
+    deleteEmployees 
+  } = usePayroll();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   
@@ -33,6 +44,7 @@ export const EmployeeDashboard: React.FC = () => {
   // Validation / feedback states
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [deletingEmployee, setDeletingEmployee] = useState<{ id: string; name: string } | null>(null);
+  const [showClearCategoryConfirm, setShowClearCategoryConfirm] = useState<'Staff' | 'Labour' | null>(null);
 
   // Multi-select state
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -44,7 +56,8 @@ export const EmployeeDashboard: React.FC = () => {
   }, [employees]);
 
   const startBulkEdit = () => {
-    setBulkEmployeesState(JSON.parse(JSON.stringify(employees)));
+    const targets = activeCategory === 'All' ? employees : employees.filter(e => e.type === activeCategory);
+    setBulkEmployeesState(JSON.parse(JSON.stringify(targets)));
     setIsBulkEditMode(true);
   };
 
@@ -59,9 +72,11 @@ export const EmployeeDashboard: React.FC = () => {
       showToast('Please verify that all names are provided and salaries are positive.');
       return;
     }
-    bulkUpdateEmployees(bulkEmployeesState);
+    const updatedMap = new Map(bulkEmployeesState.map(e => [e.id, e]));
+    const merged = employees.map(e => updatedMap.get(e.id) || e);
+    bulkUpdateEmployees(merged);
     setIsBulkEditMode(false);
-    showToast('All employee contracts updated in bulk!');
+    showToast(`${activeCategory !== 'All' ? activeCategory : 'All'} employee contracts updated in bulk!`);
   };
 
   const handleBulkFieldChange = (index: number, field: keyof Employee, value: any) => {
@@ -190,9 +205,12 @@ export const EmployeeDashboard: React.FC = () => {
   };
 
   const exportEmployeesToCsv = (onlySelected = false) => {
-    const targetEmployees = onlySelected && selectedIds.length > 0
-      ? employees.filter(e => selectedIds.includes(e.id))
-      : employees;
+    let targetEmployees = employees;
+    if (onlySelected && selectedIds.length > 0) {
+      targetEmployees = employees.filter((e) => selectedIds.includes(e.id));
+    } else if (activeCategory !== 'All') {
+      targetEmployees = employees.filter((e) => e.type === activeCategory);
+    }
 
     if (targetEmployees.length === 0) {
       showToast('No employees available to export.');
@@ -240,9 +258,12 @@ export const EmployeeDashboard: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     const today = new Date().toISOString().split('T')[0];
-    const filename = onlySelected && selectedIds.length > 0
-      ? `Employee_Export_Selected_${targetEmployees.length}_${today}.csv`
-      : `Employee_Directory_Export_${targetEmployees.length}_${today}.csv`;
+    const categoryTag = onlySelected
+      ? `Selected_${targetEmployees.length}`
+      : activeCategory !== 'All'
+        ? `${activeCategory}_${targetEmployees.length}`
+        : `All_${targetEmployees.length}`;
+    const filename = `Employee_Directory_${categoryTag}_${today}.csv`;
 
     link.setAttribute('href', url);
     link.setAttribute('download', filename);
@@ -254,19 +275,40 @@ export const EmployeeDashboard: React.FC = () => {
     showToast(`Exported ${targetEmployees.length} employee${targetEmployees.length > 1 ? 's' : ''} to CSV successfully!`);
   };
 
-  const downloadEmployeeTemplate = () => {
+  const downloadEmployeeTemplate = (templateType?: 'Staff' | 'Labour') => {
+    const targetType = templateType || (activeCategory === 'Labour' ? 'Labour' : activeCategory === 'Staff' ? 'Staff' : undefined);
     const headers = 'EmployeeID,Name,Type,BasicSalary,ShiftStart,ESIDeducted,PFDeducted,LWFDeducted\n';
-    const row1 = 'EMP001,Harish Verma,Staff,32000,08:30,Yes,Yes,Yes\n';
-    const row2 = 'EMP002,Raju Yadav,Labour,18500,08:00,Yes,No,Yes\n';
-    const row3 = 'EMP003,Suman Sharma,Staff,28000,09:00,Yes,Yes,No\n';
-    const csvContent = 'data:text/csv;charset=utf-8,' + encodeURIComponent(headers + row1 + row2 + row3);
+    
+    let contentRows = '';
+    let filename = 'employee_import_template.csv';
+
+    if (targetType === 'Staff') {
+      filename = 'staff_import_template.csv';
+      contentRows = 
+        'STF001,Harish Verma,Staff,32000,08:30,Yes,Yes,Yes\n' +
+        'STF002,Suman Sharma,Staff,28000,09:00,Yes,Yes,No\n' +
+        'STF003,Aanchal,Staff,25000,08:00,Yes,Yes,Yes\n';
+    } else if (targetType === 'Labour') {
+      filename = 'labour_import_template.csv';
+      contentRows = 
+        'LBR001,Raju Yadav,Labour,18500,08:00,Yes,No,Yes\n' +
+        'LBR002,Mukesh Kumar,Labour,17000,08:00,Yes,Yes,Yes\n' +
+        'LBR003,Pappu Singh,Labour,16500,08:00,Yes,No,No\n';
+    } else {
+      contentRows = 
+        'EMP001,Harish Verma,Staff,32000,08:30,Yes,Yes,Yes\n' +
+        'EMP002,Raju Yadav,Labour,18500,08:00,Yes,No,Yes\n' +
+        'EMP003,Suman Sharma,Staff,28000,09:00,Yes,Yes,No\n';
+    }
+
+    const csvContent = 'data:text/csv;charset=utf-8,' + encodeURIComponent(headers + contentRows);
     const link = document.createElement('a');
     link.setAttribute('href', csvContent);
-    link.setAttribute('download', 'employee_import_template.csv');
+    link.setAttribute('download', filename);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    showToast('Employee CSV template downloaded!');
+    showToast(`${targetType || 'Employee'} CSV template downloaded!`);
   };
 
   const showToast = (msg: string) => {
@@ -274,10 +316,11 @@ export const EmployeeDashboard: React.FC = () => {
     setTimeout(() => setToastMsg(null), 3000);
   };
 
-  const openAddModal = () => {
+  const openAddModal = (defaultCat?: EmployeeType) => {
     setEditingEmployee(null);
     setName('');
-    setType('Staff');
+    const targetType = defaultCat || (activeCategory === 'Labour' ? 'Labour' : 'Staff');
+    setType(targetType);
     setBasicSalary('');
     setStandardShiftStart('08:00');
     setEsiDeducted(true);
@@ -332,11 +375,13 @@ export const EmployeeDashboard: React.FC = () => {
     setDeletingEmployee({ id, name: empName });
   };
 
-  // KPIs
+  // KPIs & Filtering
   const totalEmployees = employees.length;
   const staffCount = employees.filter((e) => e.type === 'Staff').length;
   const labourCount = employees.filter((e) => e.type === 'Labour').length;
   const totalPayrollBudget = employees.reduce((acc, e) => acc + e.basicSalary, 0);
+
+  const displayedEmployees = employees.filter((e) => activeCategory === 'All' ? true : e.type === activeCategory);
 
   return (
     <div className="space-y-6">
@@ -358,8 +403,21 @@ export const EmployeeDashboard: React.FC = () => {
       {/* Title & Actions */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Employee Directory</h1>
-          <p className="text-sm text-slate-500">Manage organizational members, employment types, and salary contracts.</p>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xs font-black tracking-wider uppercase px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-100">
+              {activeCategory === 'Staff' ? 'Staff Module' : activeCategory === 'Labour' ? 'Labour Module' : 'Combined Workforce'}
+            </span>
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+            {activeCategory === 'Staff' ? 'Office Staff Directory' : activeCategory === 'Labour' ? 'Technical Labour Directory' : 'Employee Directory'}
+          </h1>
+          <p className="text-sm text-slate-500">
+            {activeCategory === 'Staff' 
+              ? 'Manage office staff members, contract salaries, 35m grace period, and leave allowances.'
+              : activeCategory === 'Labour'
+                ? 'Manage technical labour technicians, wages, shift hours (08:00 - 17:00), and overtime.'
+                : 'Manage all organizational members, employment types, and salary contracts.'}
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           {isBulkEditMode ? (
@@ -404,37 +462,194 @@ export const EmployeeDashboard: React.FC = () => {
               <button
                 onClick={() => exportEmployeesToCsv(false)}
                 className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 transition-colors rounded-xl flex items-center gap-1.5 border border-slate-200 shadow-xs cursor-pointer"
-                title="Bulk export all employees list to CSV spreadsheet"
+                title={`Export ${activeCategory !== 'All' ? activeCategory : 'all'} employees to CSV`}
               >
                 <Download className="h-3.5 w-3.5 text-slate-500" />
-                Export CSV
+                <span>Export {activeCategory !== 'All' ? activeCategory : ''} CSV</span>
               </button>
               <button
                 onClick={() => setIsCsvModalOpen(true)}
                 className="px-4 py-2 text-xs font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 transition-colors rounded-xl flex items-center gap-1.5 border border-indigo-100 cursor-pointer"
+                title={`Import ${activeCategory !== 'All' ? activeCategory : 'employee'} list from CSV`}
               >
                 <Upload className="h-3.5 w-3.5" />
-                Import CSV
+                <span>Import {activeCategory !== 'All' ? activeCategory : ''} CSV</span>
               </button>
               <button
                 onClick={startBulkEdit}
                 className="px-4 py-2 text-xs font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 transition-colors rounded-xl flex items-center gap-1.5 border border-indigo-100 cursor-pointer"
-                title="Edit all employee contracts at once"
+                title="Edit employee contracts in spreadsheet mode"
               >
                 <FileSpreadsheet className="h-3.5 w-3.5" />
                 Bulk Edit
               </button>
               <button
-                onClick={openAddModal}
+                onClick={() => openAddModal()}
                 className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition-all shadow-sm rounded-xl flex items-center gap-1.5 cursor-pointer"
               >
                 <UserPlus className="h-4 w-4" />
-                Add Employee
+                <span>+ Add {activeCategory === 'Staff' ? 'Staff' : activeCategory === 'Labour' ? 'Labour' : 'Employee'}</span>
               </button>
             </>
           )}
         </div>
       </div>
+
+      {/* Workforce Category Switcher Toolbar */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white p-3 rounded-2xl border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setActiveCategory('Staff')}
+            className={`px-4 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-2 cursor-pointer ${
+              activeCategory === 'Staff'
+                ? 'bg-blue-600 text-white shadow-sm border-2 border-black'
+                : 'text-slate-600 hover:text-black hover:bg-slate-100'
+            }`}
+          >
+            <Building2 className="h-4 w-4" />
+            <span>Office Staff</span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+              activeCategory === 'Staff' ? 'bg-blue-950 text-blue-200' : 'bg-slate-200 text-slate-700'
+            }`}>
+              {staffCount}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setActiveCategory('Labour')}
+            className={`px-4 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-2 cursor-pointer ${
+              activeCategory === 'Labour'
+                ? 'bg-amber-500 text-black shadow-sm border-2 border-black font-black'
+                : 'text-slate-600 hover:text-black hover:bg-slate-100'
+            }`}
+          >
+            <Hammer className="h-4 w-4" />
+            <span>Technical Labour</span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+              activeCategory === 'Labour' ? 'bg-amber-950 text-amber-200' : 'bg-slate-200 text-slate-700'
+            }`}>
+              {labourCount}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setActiveCategory('All')}
+            className={`px-4 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-2 cursor-pointer ${
+              activeCategory === 'All'
+                ? 'bg-slate-900 text-white shadow-sm border-2 border-black'
+                : 'text-slate-600 hover:text-black hover:bg-slate-100'
+            }`}
+          >
+            <Users className="h-4 w-4" />
+            <span>All Directory</span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+              activeCategory === 'All' ? 'bg-slate-700 text-slate-200' : 'bg-slate-200 text-slate-700'
+            }`}>
+              {totalEmployees}
+            </span>
+          </button>
+        </div>
+
+        {activeCategory !== 'All' && (
+          <button
+            onClick={() => setShowClearCategoryConfirm(activeCategory)}
+            className="px-3.5 py-1.5 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-all flex items-center gap-1.5 self-end sm:self-auto cursor-pointer"
+            title={`Clear all ${activeCategory} records to insert fresh data`}
+          >
+            <Trash2 className="h-3.5 w-3.5 text-rose-600" />
+            <span>Wipe & Replace {activeCategory} List</span>
+          </button>
+        )}
+      </div>
+
+      {/* Category Specific Working Hours & Compensation Rules Card */}
+      {activeCategory === 'Staff' && (
+        <div className="bg-blue-50/80 border-2 border-blue-200 rounded-2xl p-4 sm:p-5 flex items-start gap-3.5 shadow-xs">
+          <div className="h-10 w-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-sm mt-0.5">
+            <Building2 className="h-5 w-5" />
+          </div>
+          <div className="space-y-1.5 text-xs text-blue-950 flex-1">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+              <h4 className="font-black text-sm uppercase tracking-wide text-blue-900 flex items-center gap-2">
+                <span>🏢 Office Staff Policy & Working Hours</span>
+              </h4>
+              <span className="bg-blue-200 text-blue-900 px-2.5 py-0.5 rounded-full font-black text-[10px] self-start sm:self-auto">
+                35m Grace · 8h Workday · 1h Lunch
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 pt-1 text-slate-700">
+              <div className="bg-white/80 p-2.5 rounded-xl border border-blue-100">
+                <span className="font-bold text-blue-900 block mb-0.5">⏰ Shift Timing:</span>
+                <span>Standard 08:00 AM start (individual staff start time customizable)</span>
+              </div>
+              <div className="bg-white/80 p-2.5 rounded-xl border border-blue-100">
+                <span className="font-bold text-blue-900 block mb-0.5">🥪 Lunch Hour:</span>
+                <span>1:00 PM – 2:00 PM (1 hour unpaid lunch deducted from work time)</span>
+              </div>
+              <div className="bg-white/80 p-2.5 rounded-xl border border-blue-100">
+                <span className="font-bold text-blue-900 block mb-0.5">🛡️ Grace Period:</span>
+                <span>35 min tak ₹0 deduction. 35 min se zyada late aane par seedhe 1 ghanta (1 hr) cut hoga (minutes me nahi).</span>
+              </div>
+              <div className="bg-white/80 p-2.5 rounded-xl border border-blue-100">
+                <span className="font-bold text-blue-900 block mb-0.5">🎁 Evening OT Bonus:</span>
+                <span>Flat ₹100 bonus for staying till 8:00 PM (7:00 PM for Aanchal)</span>
+              </div>
+              <div className="bg-white/80 p-2.5 rounded-xl border border-blue-100">
+                <span className="font-bold text-blue-900 block mb-0.5">🏖️ Leave Allowance:</span>
+                <span>1.5 paid leaves/month; quarterly unused leave compensation bonus</span>
+              </div>
+              <div className="bg-white/80 p-2.5 rounded-xl border border-blue-100">
+                <span className="font-bold text-blue-900 block mb-0.5">🗓️ Sunday Work:</span>
+                <span>Sundays paid on an hourly rate basis for actual hours completed</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeCategory === 'Labour' && (
+        <div className="bg-amber-50/80 border-2 border-amber-300 rounded-2xl p-4 sm:p-5 flex items-start gap-3.5 shadow-xs">
+          <div className="h-10 w-10 rounded-xl bg-amber-500 text-black flex items-center justify-center shrink-0 shadow-sm mt-0.5">
+            <Hammer className="h-5 w-5" />
+          </div>
+          <div className="space-y-1.5 text-xs text-amber-950 flex-1">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+              <h4 className="font-black text-sm uppercase tracking-wide text-amber-950 flex items-center gap-2">
+                <span>🔨 Technical Labour Policy & Overtime Rules</span>
+              </h4>
+              <span className="bg-amber-200 text-amber-950 px-2.5 py-0.5 rounded-full font-black text-[10px] self-start sm:self-auto">
+                30m Grace · 8 PM ₹100 Bonus · Sunday 7h Full Day
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 pt-1 text-slate-700">
+              <div className="bg-white/80 p-2.5 rounded-xl border border-amber-200">
+                <span className="font-bold text-amber-950 block mb-0.5">⏰ Weekday Shift:</span>
+                <span>08:00 AM – 5:00 PM (17:00) [9 hrs attendance = 8 hrs work + 1h lunch]</span>
+              </div>
+              <div className="bg-white/80 p-2.5 rounded-xl border border-amber-200">
+                <span className="font-bold text-amber-950 block mb-0.5">☀️ Sunday Shift:</span>
+                <span>08:00 AM – 3:00 PM (15:00). 7+ hours worked gives full 9-hour wage credit!</span>
+              </div>
+              <div className="bg-white/80 p-2.5 rounded-xl border border-amber-200">
+                <span className="font-bold text-amber-950 block mb-0.5">🛡️ Grace Period:</span>
+                <span>30 minutes grace period for morning check-in</span>
+              </div>
+              <div className="bg-white/80 p-2.5 rounded-xl border border-amber-200">
+                <span className="font-bold text-amber-950 block mb-0.5">⏱️ Overtime (OT):</span>
+                <span>Paid hourly before 8:00 AM & after 5:00 PM (after 3:00 PM on Sunday)</span>
+              </div>
+              <div className="bg-white/80 p-2.5 rounded-xl border border-amber-200">
+                <span className="font-bold text-amber-950 block mb-0.5">🎁 8 PM Evening Bonus:</span>
+                <span>Flat ₹100 bonus ONLY if staying till 8:00 PM (20:00) on any day</span>
+              </div>
+              <div className="bg-white/80 p-2.5 rounded-xl border border-amber-200">
+                <span className="font-bold text-amber-950 block mb-0.5">⏱️ Hourly Work Pay:</span>
+                <span>Chahe 1 hr kaam kare ya 4 hr, exact working hours ka poora hourly wage milega (Absent sirf 0 hours pe).</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* KPI Stats Panel */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -451,7 +666,9 @@ export const EmployeeDashboard: React.FC = () => {
         </div>
 
         {/* Staff Count */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between">
+        <div className={`p-5 rounded-2xl border shadow-xs flex items-center justify-between transition-all ${
+          activeCategory === 'Staff' ? 'bg-blue-50/50 border-blue-300' : 'bg-white border-slate-100'
+        }`}>
           <div className="space-y-1">
             <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">Office Staff</span>
             <h3 className="text-2xl font-bold text-slate-800">{staffCount}</h3>
@@ -463,14 +680,16 @@ export const EmployeeDashboard: React.FC = () => {
         </div>
 
         {/* Labour Count */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between">
+        <div className={`p-5 rounded-2xl border shadow-xs flex items-center justify-between transition-all ${
+          activeCategory === 'Labour' ? 'bg-amber-50/50 border-amber-300' : 'bg-white border-slate-100'
+        }`}>
           <div className="space-y-1">
             <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">Technical Labour</span>
             <h3 className="text-2xl font-bold text-slate-800">{labourCount}</h3>
-            <span className="text-xs text-amber-600 font-medium bg-amber-50/50 px-2 py-0.5 rounded-full">30m Grace Period</span>
+            <span className="text-xs text-amber-600 font-medium bg-amber-50/50 px-2 py-0.5 rounded-full">30m Grace · 8 PM Bonus</span>
           </div>
           <div className="h-12 w-12 bg-amber-50 rounded-xl flex items-center justify-center text-amber-600 border border-amber-100/50">
-            <Users className="h-6 w-6" />
+            <Hammer className="h-6 w-6" />
           </div>
         </div>
 
@@ -489,18 +708,26 @@ export const EmployeeDashboard: React.FC = () => {
 
       {/* Employee Grid/Table Container */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-xs overflow-hidden">
-        {employees.length === 0 ? (
+        {displayedEmployees.length === 0 ? (
           <div className="p-12 text-center">
             <div className="mx-auto w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mb-3">
-              <Users className="h-6 w-6 text-slate-400" />
+              {activeCategory === 'Staff' ? <Building2 className="h-6 w-6 text-blue-500" /> : activeCategory === 'Labour' ? <Hammer className="h-6 w-6 text-amber-500" /> : <Users className="h-6 w-6 text-slate-400" />}
             </div>
-            <h3 className="text-sm font-semibold text-slate-800">No employees registered</h3>
-            <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">Get started by onboarding your first company staff member or field labour technician.</p>
+            <h3 className="text-sm font-semibold text-slate-800">
+              {activeCategory === 'Staff' ? 'No Office Staff registered' : activeCategory === 'Labour' ? 'No Technical Labour registered' : 'No employees registered'}
+            </h3>
+            <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+              {activeCategory === 'Staff' 
+                ? 'Onboard office staff members or import staff CSV template.'
+                : activeCategory === 'Labour'
+                  ? 'Onboard technical labour workers or import labour CSV template.'
+                  : 'Get started by onboarding your first company staff member or field labour technician.'}
+            </p>
             <button
-              onClick={openAddModal}
-              className="mt-4 inline-flex items-center gap-1 text-xs font-semibold text-white bg-indigo-600 px-4 py-2 rounded-xl hover:bg-indigo-700 transition"
+              onClick={() => openAddModal()}
+              className="mt-4 inline-flex items-center gap-1 text-xs font-semibold text-white bg-indigo-600 px-4 py-2 rounded-xl hover:bg-indigo-700 transition cursor-pointer"
             >
-              <Plus className="h-4 w-4" /> Add Employee
+              <Plus className="h-4 w-4" /> Add {activeCategory === 'Staff' ? 'Staff Member' : activeCategory === 'Labour' ? 'Labour Worker' : 'Employee'}
             </button>
           </div>
         ) : isBulkEditMode ? (
@@ -603,12 +830,12 @@ export const EmployeeDashboard: React.FC = () => {
                   <th className="py-4 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider w-12 text-center select-none">
                     <input
                       type="checkbox"
-                      checked={employees.length > 0 && selectedIds.length === employees.length}
+                      checked={displayedEmployees.length > 0 && displayedEmployees.every(emp => selectedIds.includes(emp.id))}
                       onChange={(e) => {
                         if (e.target.checked) {
-                          setSelectedIds(employees.map((emp) => emp.id));
+                          setSelectedIds(prev => Array.from(new Set([...prev, ...displayedEmployees.map(emp => emp.id)])));
                         } else {
-                          setSelectedIds([]);
+                          setSelectedIds(prev => prev.filter(id => !displayedEmployees.some(emp => emp.id === id)));
                         }
                       }}
                       className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4 cursor-pointer"
@@ -624,7 +851,7 @@ export const EmployeeDashboard: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {employees.map((emp) => {
+                {displayedEmployees.map((emp) => {
                   const oneDayWage = Math.round(emp.basicSalary / 30);
                   const hourlyWage = Math.round(oneDayWage / 9);
                   const isChecked = selectedIds.includes(emp.id);
@@ -1249,6 +1476,79 @@ export const EmployeeDashboard: React.FC = () => {
                   className="px-4 py-2 border-2 border-black bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[-1px] hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-y-[1px] active:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] transition-all"
                 >
                   Yes, Remove All
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Wipe & Replace Category Modal */}
+      <AnimatePresence>
+        {showClearCategoryConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowClearCategoryConfirm(null)}
+              className="absolute inset-0 bg-slate-900/50 backdrop-blur-xs"
+            />
+            
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="relative w-full max-w-md bg-white rounded-3xl border-2 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] overflow-hidden z-10"
+            >
+              <div className="bg-rose-50 px-6 py-5 border-b-2 border-black flex items-center gap-3">
+                <div className="h-10 w-10 bg-rose-100 border border-rose-300 rounded-xl flex items-center justify-center text-rose-600">
+                  <Trash2 className="h-5 w-5 animate-pulse" />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-900 tracking-tight text-lg">
+                    Wipe All {showClearCategoryConfirm} Records?
+                  </h3>
+                  <p className="text-[10px] text-rose-700/80 font-bold uppercase tracking-wider">
+                    CATEGORY RESET · READY FOR NEW INPUT
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-6 space-y-4">
+                <p className="text-slate-600 text-sm leading-relaxed">
+                  Are you ready to clear all existing <strong className="text-black">{showClearCategoryConfirm}</strong> members ({employees.filter(e => e.type === showClearCategoryConfirm).length} people)?
+                </p>
+                <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-xs text-blue-900 flex gap-3">
+                  <span className="text-base select-none">💡</span>
+                  <div>
+                    <span className="font-bold block text-blue-950 mb-0.5">Separate Dataset Ready</span>
+                    <p className="leading-normal text-blue-800">
+                      This leaves the other category completely untouched! Once cleared, you can immediately paste or import your fresh {showClearCategoryConfirm} list, shift hours, and attendance.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-slate-50 px-6 py-4 border-t-2 border-black flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowClearCategoryConfirm(null)}
+                  className="px-4 py-2 border-2 border-black bg-white hover:bg-slate-100 text-xs font-bold rounded-xl shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const cat = showClearCategoryConfirm;
+                    clearEmployeesByType(cat);
+                    showToast(`All ${cat} entries cleared. Ready for your separate ${cat} input!`);
+                    setShowClearCategoryConfirm(null);
+                  }}
+                  className="px-4 py-2 border-2 border-black bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] cursor-pointer"
+                >
+                  Wipe & Clear {showClearCategoryConfirm}
                 </button>
               </div>
             </motion.div>

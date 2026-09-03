@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { usePayroll } from '../context/PayrollContext';
 import { calculateMonthlySummary, formatReadableDate, formatHoursAndMinutes } from '../utils/payroll';
 import { MonthlyPayrollSummary, Employee, DayPayrollDetails } from '../types';
-import { Search, Filter, IndianRupee, FileText, Calendar, Download, Printer, X, Clock, HelpCircle, Star, AlertTriangle, ShieldCheck, SlidersHorizontal, Clipboard, CheckCircle2, Upload } from 'lucide-react';
+import { Search, Filter, IndianRupee, FileText, Calendar, Download, Printer, X, Clock, HelpCircle, Star, AlertTriangle, ShieldCheck, SlidersHorizontal, Clipboard, CheckCircle2, Upload, Building2, Hammer, Users } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 const MONTH_NAMES = [
@@ -18,6 +18,8 @@ export const PayrollGenerator: React.FC = () => {
     activeYear, 
     setActiveMonth, 
     setActiveYear,
+    activeCategory,
+    setActiveCategory,
     customLeaveDeductions,
     setCustomLeaveDeduction,
     customAdjustedHours,
@@ -29,7 +31,6 @@ export const PayrollGenerator: React.FC = () => {
   } = usePayroll();
   
   const [searchTerm, setSearchTerm] = useState('');
-  const [typeFilter, setTypeFilter] = useState<'All' | 'Staff' | 'Labour'>('All');
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [isBulkAdjustOpen, setIsBulkAdjustOpen] = useState(false);
   const [bulkTab, setBulkTab] = useState<'table' | 'paste'>('table');
@@ -314,37 +315,38 @@ export const PayrollGenerator: React.FC = () => {
     return payrollSummaries.filter((summary) => {
       const matchesSearch = summary.employeeName.toLowerCase().includes(searchTerm.toLowerCase()) ||
                             summary.employeeId.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesType = typeFilter === 'All' || summary.employeeType === typeFilter;
+      const matchesType = activeCategory === 'All' || summary.employeeType === activeCategory;
       return matchesSearch && matchesType;
     });
-  }, [payrollSummaries, searchTerm, typeFilter]);
+  }, [payrollSummaries, searchTerm, activeCategory]);
 
-  // High-level metrics
+  // High-level metrics for currently active view
   const totalWagesPayable = useMemo(() => {
-    return payrollSummaries.reduce((acc, s) => acc + s.finalPayableSalary, 0);
-  }, [payrollSummaries]);
+    return filteredSummaries.reduce((acc, s) => acc + s.finalPayableSalary, 0);
+  }, [filteredSummaries]);
 
   const totalNetTakeHome = useMemo(() => {
-    return payrollSummaries.reduce((acc, s) => acc + s.netTakeHome, 0);
-  }, [payrollSummaries]);
+    return filteredSummaries.reduce((acc, s) => acc + s.netTakeHome, 0);
+  }, [filteredSummaries]);
 
   const totalAdvancesDeducted = useMemo(() => {
-    return payrollSummaries.reduce((acc, s) => acc + (s.advanceAmount || 0), 0);
-  }, [payrollSummaries]);
+    return filteredSummaries.reduce((acc, s) => acc + (s.advanceAmount || 0), 0);
+  }, [filteredSummaries]);
 
   const totalDeductions = useMemo(() => {
-    return payrollSummaries.reduce((acc, s) => acc + s.totalLateDeductions + s.leaveDeductions, 0);
-  }, [payrollSummaries]);
+    return filteredSummaries.reduce((acc, s) => acc + s.totalLateDeductions + s.leaveDeductions, 0);
+  }, [filteredSummaries]);
 
   const totalOvertimePaid = useMemo(() => {
-    return payrollSummaries.reduce((acc, s) => acc + s.totalOvertimeBonuses, 0);
-  }, [payrollSummaries]);
+    return filteredSummaries.reduce((acc, s) => acc + s.totalOvertimeBonuses, 0);
+  }, [filteredSummaries]);
 
   const handlePrint = () => {
     window.print();
   };
 
   const exportToExcel = () => {
+    const exportData = activeCategory === 'All' ? payrollSummaries : payrollSummaries.filter(s => s.employeeType === activeCategory);
     const headers = [
       "Employee ID",
       "Employee Name",
@@ -375,7 +377,7 @@ export const PayrollGenerator: React.FC = () => {
       "Net Take Home (INR)"
     ];
 
-    const rows = payrollSummaries.map(s => {
+    const rows = exportData.map(s => {
       const isStaff = s.employeeType === 'Staff';
       const quotaTotal = isStaff ? "36 hrs" : "N/A";
       const quotaUsed = isStaff ? `${s.juneAugMissedHours ?? 0} hrs` : "N/A";
@@ -431,7 +433,8 @@ export const PayrollGenerator: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `Payroll_Report_${MONTH_NAMES[activeMonth]}_${activeYear}.csv`);
+    const catTag = activeCategory !== 'All' ? `_${activeCategory}` : '';
+    link.setAttribute("download", `Payroll_Report${catTag}_${MONTH_NAMES[activeMonth]}_${activeYear}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -636,28 +639,62 @@ export const PayrollGenerator: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-1.5 self-stretch sm:self-auto justify-end flex-wrap">
-            <Filter className="h-3.5 w-3.5 text-slate-400 mr-1" />
-            {(['All', 'Staff', 'Labour'] as const).map((t) => (
-              <button
-                key={t}
-                onClick={() => setTypeFilter(t)}
-                className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                  typeFilter === t
-                    ? 'bg-slate-900 text-white shadow-xs'
-                    : 'text-slate-500 hover:text-slate-800 bg-white border border-slate-200'
-                }`}
-              >
-                {t}
-              </button>
-            ))}
             <button
-              onClick={handleOpenBulkAdjust}
-              className="px-3 py-1 text-xs font-bold text-indigo-700 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/60 rounded-lg transition-all flex items-center gap-1 cursor-pointer"
-              title="Bulk Adjust Hours for All Employees"
+              onClick={() => setActiveCategory('Staff')}
+              className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${
+                activeCategory === 'Staff'
+                  ? 'bg-blue-600 text-white shadow-xs border border-blue-700'
+                  : 'text-slate-600 hover:text-slate-900 bg-white border border-slate-200'
+              }`}
             >
-              <SlidersHorizontal className="h-3.5 w-3.5" />
-              Bulk Adjust Hours
+              <Building2 className="h-3.5 w-3.5" />
+              <span>Office Staff</span>
+              <span className={`px-1.5 py-0.2 rounded-md text-[10px] font-black ${
+                activeCategory === 'Staff' ? 'bg-blue-900 text-blue-200' : 'bg-slate-100 text-slate-600'
+              }`}>
+                {employees.filter(e => e.type === 'Staff').length}
+              </span>
             </button>
+
+            <button
+              onClick={() => setActiveCategory('Labour')}
+              className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${
+                activeCategory === 'Labour'
+                  ? 'bg-amber-500 text-black shadow-xs border border-amber-600 font-bold'
+                  : 'text-slate-600 hover:text-slate-900 bg-white border border-slate-200'
+              }`}
+            >
+              <Hammer className="h-3.5 w-3.5" />
+              <span>Technical Labour</span>
+              <span className={`px-1.5 py-0.2 rounded-md text-[10px] font-black ${
+                activeCategory === 'Labour' ? 'bg-amber-900 text-amber-200' : 'bg-slate-100 text-slate-600'
+              }`}>
+                {employees.filter(e => e.type === 'Labour').length}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveCategory('All')}
+              className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${
+                activeCategory === 'All'
+                  ? 'bg-slate-900 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900 bg-white border border-slate-200'
+              }`}
+            >
+              <Users className="h-3.5 w-3.5" />
+              <span>All ({employees.length})</span>
+            </button>
+
+            {activeCategory !== 'Labour' && (
+              <button
+                onClick={handleOpenBulkAdjust}
+                className="px-3 py-1.5 text-xs font-bold text-indigo-700 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/60 rounded-xl transition-all flex items-center gap-1 cursor-pointer"
+                title="Bulk Adjust Hours for Staff Members"
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                <span>Adjust Staff Hours</span>
+              </button>
+            )}
             <button
               onClick={handleOpenAdvances}
               className="px-3 py-1 text-xs font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/60 rounded-lg transition-all flex items-center gap-1 cursor-pointer"

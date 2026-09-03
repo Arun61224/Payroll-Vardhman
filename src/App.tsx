@@ -9,7 +9,7 @@ import { EmployeeDashboard } from './components/EmployeeDashboard';
 import { AttendanceTracker } from './components/AttendanceTracker';
 import { PayrollGenerator } from './components/PayrollGenerator';
 import { PayrollStats } from './components/PayrollStats';
-import { Users, CalendarDays, ReceiptIndianRupee, BarChart3, Menu, X, Briefcase, ChevronRight, Activity, Trash2, Undo2, History, Lock, Eye, EyeOff, LogIn, LogOut, ShieldCheck, Calendar, Check } from 'lucide-react';
+import { Users, CalendarDays, ReceiptIndianRupee, BarChart3, Menu, X, Briefcase, ChevronRight, Activity, Trash2, Undo2, History, Lock, Eye, EyeOff, LogIn, LogOut, ShieldCheck, Calendar, Check, Building2, Hammer } from 'lucide-react';
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -176,6 +176,9 @@ function PayrollAppContent() {
   const [activeTab, setActiveTab] = useState<TabId>('directory');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { 
+    employees,
+    activeCategory,
+    setActiveCategory,
     activeMonth, 
     activeYear, 
     setActiveMonth, 
@@ -185,6 +188,9 @@ function PayrollAppContent() {
     restoreEmployee, 
     clearDeletedLogs 
   } = usePayroll();
+
+  const staffCount = employees.filter((e) => e.type === 'Staff').length;
+  const labourCount = employees.filter((e) => e.type === 'Labour').length;
 
   const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
   const [clearPassword, setClearPassword] = useState('');
@@ -528,6 +534,75 @@ function PayrollAppContent() {
               </div>
             </div>
           </section>
+
+          {/* Workforce Separation Switcher Bar */}
+          <div className="bg-slate-900 text-white px-4 sm:px-8 py-3 border-b-2 border-black flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 shrink-0">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1.5">
+                <Briefcase className="h-3.5 w-3.5 text-indigo-400" />
+                Workforce Separation:
+              </span>
+              <span className="text-xs font-extrabold text-white">
+                {activeCategory === 'Staff' ? '🏢 Office Staff Mode' : activeCategory === 'Labour' ? '🔨 Technical Labour Mode' : '👥 All Combined'}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1.5 bg-slate-800/90 p-1 rounded-xl border border-slate-700 self-start sm:self-auto">
+              <button
+                onClick={() => setActiveCategory('Staff')}
+                className={`px-3 py-1 rounded-lg text-xs font-black uppercase transition-all flex items-center gap-1.5 cursor-pointer ${
+                  activeCategory === 'Staff'
+                    ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-400/40'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+                }`}
+                title="View & Manage Office Staff only"
+              >
+                <Building2 className="h-3.5 w-3.5 text-blue-300" />
+                <span>Office Staff</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                  activeCategory === 'Staff' ? 'bg-blue-950 text-blue-200' : 'bg-slate-700 text-slate-300'
+                }`}>
+                  {staffCount}
+                </span>
+              </button>
+
+              <button
+                onClick={() => setActiveCategory('Labour')}
+                className={`px-3 py-1 rounded-lg text-xs font-black uppercase transition-all flex items-center gap-1.5 cursor-pointer ${
+                  activeCategory === 'Labour'
+                    ? 'bg-amber-500 text-black shadow-sm ring-2 ring-amber-400/50'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+                }`}
+                title="View & Manage Technical Labour only"
+              >
+                <Hammer className="h-3.5 w-3.5 text-amber-900" />
+                <span>Labour Team</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                  activeCategory === 'Labour' ? 'bg-amber-950 text-amber-200' : 'bg-slate-700 text-slate-300'
+                }`}>
+                  {labourCount}
+                </span>
+              </button>
+
+              <button
+                onClick={() => setActiveCategory('All')}
+                className={`px-3 py-1 rounded-lg text-xs font-black uppercase transition-all flex items-center gap-1.5 cursor-pointer ${
+                  activeCategory === 'All'
+                    ? 'bg-slate-600 text-white shadow-sm ring-2 ring-slate-400/30'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+                }`}
+                title="View All Employees combined"
+              >
+                <Users className="h-3.5 w-3.5 text-slate-300" />
+                <span>All Combined</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                  activeCategory === 'All' ? 'bg-slate-900 text-slate-200' : 'bg-slate-700 text-slate-300'
+                }`}>
+                  {employees.length}
+                </span>
+              </button>
+            </div>
+          </div>
 
           {/* Scrollable Container */}
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">

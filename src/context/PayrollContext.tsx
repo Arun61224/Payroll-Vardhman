@@ -17,6 +17,10 @@ interface PayrollContextType {
   advances: Record<string, number>;
   setAdvance: (employeeId: string, year: number, month: number, amount: number | null) => void;
   bulkSetAdvances: (updates: Record<string, number | null>, year: number, month: number) => void;
+  activeCategory: 'All' | 'Staff' | 'Labour';
+  setActiveCategory: (cat: 'All' | 'Staff' | 'Labour') => void;
+  clearEmployeesByType: (type: 'Staff' | 'Labour') => void;
+  replaceEmployeesByType: (type: 'Staff' | 'Labour', newEmployees: (Omit<Employee, 'id'> & { id?: string })[]) => void;
   addEmployee: (emp: Omit<Employee, 'id'> & { id?: string }) => void;
   updateEmployee: (emp: Employee) => void;
   bulkUpdateEmployees: (emps: Employee[]) => void;
@@ -357,6 +361,37 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return {};
   });
 
+  const [activeCategory, setActiveCategory] = useState<'All' | 'Staff' | 'Labour'>('All');
+
+  const clearEmployeesByType = (targetType: 'Staff' | 'Labour') => {
+    const toRemove = employees.filter((e) => e.type === targetType).map((e) => e.id);
+    if (toRemove.length > 0) {
+      deleteEmployees(toRemove);
+    }
+  };
+
+  const replaceEmployeesByType = (targetType: 'Staff' | 'Labour', newEmployees: (Omit<Employee, 'id'> & { id?: string })[]) => {
+    setEmployees((prev) => {
+      const otherEmps = prev.filter((e) => e.type !== targetType);
+      const formatted: Employee[] = newEmployees.map((item, idx) => {
+        const defaultPrefix = targetType === 'Staff' ? 'STF' : 'LBR';
+        const defaultId = `${defaultPrefix}${String(idx + 1).padStart(3, '0')}`;
+        return {
+          id: item.id?.trim() || defaultId,
+          name: item.name.trim(),
+          type: targetType,
+          basicSalary: item.basicSalary || 0,
+          standardShiftStart: item.standardShiftStart || (targetType === 'Staff' ? '08:00' : '08:00'),
+          esiDeducted: item.esiDeducted !== false,
+          pfDeducted: item.pfDeducted !== false,
+          lwfDeducted: item.lwfDeducted !== false,
+          discontinuedDate: item.discontinuedDate,
+        };
+      });
+      return [...otherEmps, ...formatted];
+    });
+  };
+
   // Sync with localStorage
   useEffect(() => {
     localStorage.setItem(LOCAL_STORAGE_KEY_EMPLOYEES, JSON.stringify(employees));
@@ -601,6 +636,10 @@ export const PayrollProvider: React.FC<{ children: React.ReactNode }> = ({ child
         advances,
         setAdvance,
         bulkSetAdvances,
+        activeCategory,
+        setActiveCategory,
+        clearEmployeesByType,
+        replaceEmployeesByType,
         addEmployee,
         updateEmployee,
         bulkUpdateEmployees,
