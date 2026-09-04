@@ -176,6 +176,24 @@ export function calculateLunchOverlap(punchIn: string, punchOut: string): number
   return overlap / 60;
 }
 
+// Round worked minutes to nearest credited hours for payroll:
+// If remaining minutes are >= 40 (e.g., 2h 57m, 2h 50m, 2h 45m, 2h 40m), round up to next full hour (e.g. 2h 57m -> 3h).
+// If remaining minutes are between 15 and 39, count half hour (0.5).
+// If remaining minutes are < 15, floor to full hour.
+export function roundWorkedHours(workedMins: number): number {
+  if (workedMins <= 0) return 0;
+  const fullHours = Math.floor(workedMins / 60);
+  const remMins = workedMins % 60;
+
+  if (remMins >= 40) {
+    return fullHours + 1;
+  } else if (remMins >= 15) {
+    return fullHours + 0.5;
+  } else {
+    return fullHours;
+  }
+}
+
 // Calculate payroll details for a single day
 export function calculateDailyPayroll(
   employee: Employee,
@@ -365,51 +383,29 @@ export function calculateDailyPayroll(
       const grossMins = Math.max(0, actualOutMins - actualInMins);
       const lunchMins = calculateLunchOverlap(punchIn, punchOut) * 60;
       const netWorkedMins = Math.max(0, grossMins - lunchMins);
-      const netWorkedHours = netWorkedMins / 60;
+      const roundedNetHours = roundWorkedHours(netWorkedMins);
 
-      // Early departure calculation (35 mins grace before shift end)
-      let earlyDepartureHours = 0;
-      if (actualOutMins < (endMins - 35)) {
-        const earlyMins = endMins - actualOutMins;
-        const fullHoursEarly = Math.floor(earlyMins / 60);
-        const remainderEarly = earlyMins % 60;
-        earlyDepartureHours = remainderEarly <= 25 ? fullHoursEarly : (fullHoursEarly + 1);
-      }
+      const arrivedWithinGrace = actualInMins <= (startMins + 35);
+      const leftWithinGrace = actualOutMins >= (endMins - 35);
 
-      if (netWorkedHours >= 7.25 || (actualInMins <= (startMins + 35) && actualOutMins >= (endMins - 35))) {
-        // Full regular day on time (with 35m morning grace & departure grace, on normal days & Sundays)
-        actualWorkingHours = 8;
-        underworkMissedHours = 0;
-        underworkDeduction = 0;
-      } else if (netWorkedHours < 3.0) {
-        // Short day / missed full day (less than 3 hours)
-        actualWorkingHours = 0;
-        underworkMissedHours = sunday ? 0 : 8;
-        underworkDeduction = sunday ? 0 : oneDayPay;
-      } else if (netWorkedHours >= 3.0 && netWorkedHours < 4.5) {
-        // Half day (around 4 hours, e.g. leaving at 12:00 PM)
-        actualWorkingHours = 4;
-        underworkMissedHours = sunday ? 0 : 4;
-        lateDeduction = 0;
-        underworkDeduction = sunday ? 0 : oneDayPay / 2;
-      } else if (netWorkedHours >= 4.5 && netWorkedHours < 5.5) {
-        // 5 hours worked (e.g. leaving around 1:00 PM / 13:00, 12pm half day + 1hr extra before 1-2pm lunch)
-        actualWorkingHours = 5;
-        underworkMissedHours = sunday ? 0 : 3;
-        lateDeduction = 0;
-        underworkDeduction = sunday ? 0 : 3 * hourlyWage;
-      } else if (netWorkedHours >= 5.5 && netWorkedHours < 6.5) {
-        // 6 hours worked
-        actualWorkingHours = 6;
-        underworkMissedHours = sunday ? 0 : 2;
-        lateDeduction = 0;
-        underworkDeduction = sunday ? 0 : 2 * hourlyWage;
+      if (!sunday) {
+        if (roundedNetHours >= 7.5 || (arrivedWithinGrace && leftWithinGrace)) {
+          // Full regular day on time (with 35m morning grace & departure grace)
+          actualWorkingHours = 8;
+          underworkMissedHours = 0;
+          underworkDeduction = 0;
+          // Note: If stayed full day but arrived late past 35m grace, lateDeduction remains active
+        } else {
+          // Short hours / partial day (e.g. 1h, 2h, 3h [such as 2h 57m -> 3h], 4h, 5h, 6h, 7h):
+          // Paid for exact rounded hours worked!
+          actualWorkingHours = roundedNetHours;
+          underworkMissedHours = Math.max(0, 8 - roundedNetHours);
+          underworkDeduction = Number((underworkMissedHours * hourlyWage).toFixed(2));
+          // Shortfall is fully captured in underworkDeduction, clear lateDeduction to prevent double penalty
+          lateDeduction = 0;
+        }
       } else {
-        // Worked between 6.5 and 7.25 hours (7 hours worked)
-        actualWorkingHours = 7;
-        underworkMissedHours = sunday ? 0 : 1;
-        lateDeduction = 0;
-        underworkDeduction = sunday ? 0 : 1 * hourlyWage;
+        actualWorkingHours = roundedNetHours;
       }
       
       underworkWorkedHours = actualWorkingHours;
@@ -417,29 +413,31 @@ export function calculateDailyPayroll(
       // Labour weekday underwork / partial day logic:
       // Labour is paid strictly for actual hours worked.
       // - Full Day (08:00 - 17:00, or within 30m morning grace & departure grace): Full 1 day pay.
-      // - Short hours (1 hour, 2 hours, 3.5 hours, etc.): Paid exact hours worked (netWorkedHours * hourlyWage).
-      // - No double-deduction with late fee, no arbitrary absent, and no forced half-day cuts!
+      // - Short hours (1h, 2h, 3h [such as 2h 57m -> 3h], 4h, 5h, etc.): Paid exact rounded hours worked (roundedNetHours * hourlyWage).
+      // - No double-deduction with late fee, no arbitrary absent, and no forced full-day cuts!
       if (!sunday) {
         const lunchMins = calculateLunchOverlap(punchIn, punchOut) * 60;
         const actualGrossMins = Math.max(0, outMins - actualInMins);
         const actualNetMins = Math.max(0, actualGrossMins - lunchMins);
-        const actualNetHours = actualNetMins / 60;
+        const roundedNetHours = roundWorkedHours(actualNetMins);
         
         const endMins = startMins + 540; // 17:00 (5:00 PM)
         
         const arrivedWithinGrace = actualInMins <= (startMins + gracePeriod);
         const leftWithinGrace = outMins >= (endMins - gracePeriod);
 
-        if (actualNetHours >= 7.5 || (arrivedWithinGrace && leftWithinGrace)) {
+        if (roundedNetHours >= 7.5 || (arrivedWithinGrace && leftWithinGrace)) {
+          actualWorkingHours = 8;
           underworkWorkedHours = 8;
           underworkMissedHours = 0;
           underworkDeduction = 0;
-          lateDeduction = 0;
+          // Note: If stayed full day but arrived late past 30m grace, lateDeduction remains active
         } else {
-          // Worked short hours: paid exactly for actualNetHours worked!
-          underworkWorkedHours = Number(actualNetHours.toFixed(2));
-          underworkMissedHours = Math.max(0, Number((8 - actualNetHours).toFixed(2)));
-          const earnedRegularPay = Number((actualNetHours * hourlyWage).toFixed(2));
+          // Worked short hours: paid exactly for roundedNetHours worked!
+          actualWorkingHours = roundedNetHours;
+          underworkWorkedHours = roundedNetHours;
+          underworkMissedHours = Math.max(0, Number((8 - roundedNetHours).toFixed(2)));
+          const earnedRegularPay = Number((roundedNetHours * hourlyWage).toFixed(2));
           underworkDeduction = Math.max(0, Number((oneDayPay - earnedRegularPay).toFixed(2)));
           // Eliminate lateDeduction to avoid double penalty - shortfall is accurately captured in underworkDeduction
           lateDeduction = 0;
@@ -461,19 +459,25 @@ export function calculateDailyPayroll(
       if (type === 'Labour') {
         if (hoursWorked > 0) {
           const outMins = timeToMinutes(punchOut);
-          const workedFullShift = outMins >= 890 || hoursWorked >= 6; // 14:50 / 15:00
+          const lunchMins = calculateLunchOverlap(punchIn, punchOut) * 60;
+          const grossMins = Math.max(0, outMins - inMins);
+          const netMins = Math.max(0, grossMins - lunchMins);
+          const creditedHours = roundWorkedHours(netMins);
+          actualWorkingHours = creditedHours;
+          const workedFullShift = outMins >= 890 || creditedHours >= 6; // 14:50 / 15:00
           if (workedFullShift) {
             dailyWage = oneDayPay;
             netPay = Math.round(oneDayPay) * 2 + overtimeBonus;
           } else {
-            dailyWage = Math.min(oneDayPay, (hoursWorked / 6) * oneDayPay);
+            dailyWage = Math.min(oneDayPay, (creditedHours / 6) * oneDayPay);
             netPay = oneDayPay + dailyWage + overtimeBonus;
           }
+          lateDeduction = 0;
           
           if (workedFullShift) {
             explanation = `Sunday Work: Weekly Off (₹${Math.round(oneDayPay)}) + Extra Work Pay (Full day ₹${Math.round(dailyWage)}) = ₹${Math.round(netPay)}.`;
           } else {
-            explanation = `Sunday Work: Weekly Off (₹${oneDayPay.toFixed(0)}) + Extra Work Pay (${hoursWorked.toFixed(1)}h @ ₹${(oneDayPay / 6).toFixed(0)}/h = ₹${dailyWage.toFixed(0)}) = ₹${netPay.toFixed(0)}.`;
+            explanation = `Sunday Work: Weekly Off (₹${oneDayPay.toFixed(0)}) + Extra Work Pay (${creditedHours}h @ ₹${(oneDayPay / 6).toFixed(0)}/h = ₹${dailyWage.toFixed(0)}) = ₹${netPay.toFixed(0)}.`;
           }
           
           if (overtimeBonus > 0) {
@@ -494,7 +498,7 @@ export function calculateDailyPayroll(
         // Staff on Sunday
         // Staff shift end is 17:00 (5:00 PM), 8 net working hours for full day.
         // Payout is calculated based on credited working hours (8h = full 1-day pay).
-        const creditedHours = actualWorkingHours; // calculated above via Staff credited hours logic
+        const creditedHours = actualWorkingHours; // calculated above via roundWorkedHours
         if (creditedHours >= 8) {
           dailyWage = oneDayPay;
           netPay = Math.round(oneDayPay) * 2 + overtimeBonus;
@@ -521,62 +525,22 @@ export function calculateDailyPayroll(
       netPay = dailyWage + overtimeBonus - lateDeduction - underworkDeduction;
       
       if (isHalfDay) {
-        explanation = `Present. Worked ${formatHoursAndMinutes(hoursWorked)}${currentLunchOverlap > 0 ? ` (Excl. ${formatHoursAndMinutes(currentLunchOverlap)} lunch)` : ''}. Half-day worked (around 4 hours net): deducted half-day salary (-₹${underworkDeduction.toFixed(0)}).`;
+        explanation = `Present. Worked ${formatHoursAndMinutes(hoursWorked)}${currentLunchOverlap > 0 ? ` (Excl. ${formatHoursAndMinutes(currentLunchOverlap)} lunch)` : ''} (${actualWorkingHours}h credited). Half-day worked: deducted half-day salary (-₹${underworkDeduction.toFixed(0)}).`;
+      } else if (actualWorkingHours < 8) {
+        const netActualHours = Math.max(0, hoursWorked - (type === 'Staff' ? lunchOverlap : calculateLunchOverlap(punchIn, punchOut)));
+        const earnedPay = Math.max(0, actualWorkingHours * hourlyWage);
+        explanation = `Present. Worked ${formatHoursAndMinutes(netActualHours)} (${formatHoursAndMinutes(actualWorkingHours)} credited @ ₹${hourlyWage.toFixed(0)}/h = ₹${earnedPay.toFixed(0)}). Missed ${formatHoursAndMinutes(underworkMissedHours)} (-₹${underworkDeduction.toFixed(0)}).`;
       } else {
-        if (type === 'Staff') {
-          const netActualMins = Math.max(0, hoursWorked - lunchOverlap);
-          if (Math.abs(netActualMins - actualWorkingHours) > 0.01) {
-            explanation = `Present. Worked ${formatHoursAndMinutes(netActualMins)} (${formatHoursAndMinutes(actualWorkingHours)} credited${lunchOverlap > 0 ? `, Excl. ${formatHoursAndMinutes(lunchOverlap)} lunch` : ''}).`;
+        explanation = `Present. Full day worked (${formatHoursAndMinutes(actualWorkingHours)}).`;
+        if (lateMinutes > gracePeriod) {
+          if (type === 'Staff') {
+            explanation += ` Late by ${lateMinutes}m (Grace ${gracePeriod}m exceeded: -₹${lateDeduction.toFixed(0)} [${staffLateHours}h cut]).`;
           } else {
-            explanation = `Present. Worked ${formatHoursAndMinutes(actualWorkingHours)}${lunchOverlap > 0 ? ` (Excl. ${formatHoursAndMinutes(lunchOverlap)} lunch)` : ''}.`;
-          }
-        } else {
-          // Labour explanation
-          const lunchMins = calculateLunchOverlap(punchIn, punchOut) * 60;
-          const actualGrossMins = Math.max(0, outMins - actualInMins);
-          const actualNetMins = Math.max(0, actualGrossMins - lunchMins);
-          const actualNetHours = actualNetMins / 60;
-
-          if (underworkDeduction > 0) {
-            const earnedPay = Math.max(0, actualNetHours * hourlyWage);
-            explanation = `Present. Worked ${formatHoursAndMinutes(actualNetHours)} (Paid ₹${earnedPay.toFixed(0)} for ${actualNetHours.toFixed(2)} hrs @ ₹${hourlyWage.toFixed(0)}/h). Missed ${formatHoursAndMinutes(Math.max(0, 8 - actualNetHours))} (-₹${underworkDeduction.toFixed(0)}).`;
-          } else {
-            explanation = `Present. Full day worked (${formatHoursAndMinutes(actualNetHours)}).`;
-          }
-        }
-
-        if (type === 'Staff') {
-          if (underworkDeduction > 0) {
-            const outMins = timeToMinutes(punchOut);
-            const lunchStartMins = startMins + 240;
-            if (outMins <= lunchStartMins) {
-              if (underworkMissedHours === 4) {
-                explanation += ` Half-day penalty applied (-₹${underworkDeduction.toFixed(0)}).`;
-              } else {
-                explanation += ` Underwork penalty applied (-₹${underworkDeduction.toFixed(0)}: ${underworkMissedHours}h missed).`;
-              }
-            } else {
-              explanation += ` Early exit penalty applied (-₹${underworkDeduction.toFixed(0)}: ${underworkMissedHours}h early).`;
-            }
-          } else {
-            const outMins = timeToMinutes(punchOut);
-            const lunchStartMins = startMins + 240;
-            const shiftEndMinsForExp = (startMins + 540);
-            if (outMins > lunchStartMins && outMins < shiftEndMinsForExp) {
-              const earlyMinutes = shiftEndMinsForExp - outMins;
-              explanation += ` Early exit by ${earlyMinutes}m (Within ${gracePeriod}m grace: No deduction).`;
-            }
-          }
-          
-          if (lateMinutes > 0) {
-            if (lateMinutes > gracePeriod) {
-              explanation += ` Late by ${lateMinutes}m (Grace ${gracePeriod}m exceeded: -₹${lateDeduction.toFixed(0)} [${staffLateHours}h cut]).`;
-            } else {
-              explanation += ` Late by ${lateMinutes}m (Within Grace ${gracePeriod}m: No deduction).`;
-            }
+            explanation += ` Late by ${lateMinutes}m (Grace ${gracePeriod}m exceeded: -₹${lateDeduction.toFixed(0)}).`;
           }
         }
       }
+    }
       if (overtimeBonus > 0) {
         if (type === 'Labour' && !sunday) {
           const inMins = timeToMinutes(punchIn);
@@ -617,10 +581,9 @@ export function calculateDailyPayroll(
 
       // Append daily net payable amount
       explanation += ` Net Payable: ₹${netPay.toFixed(0)}.`;
+    } else {
+      explanation = 'Missing Punch In/Out (Unpaid)';
     }
-  } else {
-    explanation = 'Missing Punch In/Out (Unpaid)';
-  }
 
   return {
     date,
@@ -1111,14 +1074,18 @@ export function calculateMonthlySummary(
   };
 }
 
-// Convert decimal hours into a friendly readable string: "Xh Ym"
+// Convert decimal hours into a friendly readable string: "Xh Ym" or "Xh"
 export function formatHoursAndMinutes(hours: number): string {
-  if (isNaN(hours) || hours <= 0) return '—';
+  if (isNaN(hours) || hours < 0) return '—';
+  if (hours === 0) return '0h';
   const totalMinutes = Math.round(hours * 60);
   const h = Math.floor(totalMinutes / 60);
   const m = totalMinutes % 60;
   if (h === 0 && m > 0) {
     return `${m}m`;
   }
-  return `${h}h ${String(m).padStart(2, '0')}m`;
+  if (m === 0) {
+    return `${h}h`;
+  }
+  return `${h}h ${m}m`;
 }
